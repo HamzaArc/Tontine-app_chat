@@ -98,6 +98,28 @@ app.post('/groups', async (req, res) => {
     }
   });
     
+  app.post('/users', async (req, res) => {
+    try {
+      const { email, password, name } = req.body;
+  
+      // In a real app, you'd hash the password before storing.
+      // For now, store plain text to keep it simple.
+      const user = await prisma.user.create({
+        data: {
+          email,
+          password,
+          name,
+        },
+      });
+  
+      res.status(201).json(user);
+    } catch (error) {
+      console.error('Error creating user:', error);
+      res.status(500).json({ error: 'Failed to create user' });
+    }
+  });
+  
+
 // Use PORT from .env if provided, else default to 4000
 const PORT = process.env.PORT || 4000;
 
