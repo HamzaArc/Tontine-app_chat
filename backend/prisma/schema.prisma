@@ -18,4 +18,34 @@ model User {
   email     String   @unique
   name      String?
   createdAt DateTime @default(now())
+  password  String
+
+  // Back-relation to Membership
+  memberships Membership[]
+}
+
+model Group {
+  id           Int      @id @default(autoincrement())
+  name         String
+  contribution Float?
+  frequency    String? // e.g., "weekly", "monthly"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relation
+  memberships Membership[]
+}
+
+model Membership {
+  id       Int      @id @default(autoincrement())
+  userId   Int
+  groupId  Int
+  joinedAt DateTime @default(now())
+
+  // Relations
+  user  User  @relation(fields: [userId], references: [id])
+  group Group @relation(fields: [groupId], references: [id])
+
+  // Make sure each user can only join a group once
+  @@unique([userId, groupId])
 }
