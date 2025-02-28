@@ -1,13 +1,17 @@
-import express from 'express';
+import express, { Request, Response, NextFunction, RequestHandler } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import { authMiddleware } from './middleware/authMiddleware';
 
 
 dotenv.config();  // Loads variables from .env
 
 const app = express();
+const prisma = new PrismaClient();
+
 app.use(cors());
 app.use(express.json());
 
@@ -16,18 +20,29 @@ app.get('/', (req, res) => {
   res.send('Hello, Tontine World!');
 });
 
-app.get('/users', async (req, res) => {
+app.post('/users', async (req, res) => {
     try {
-      const users = await prisma.user.findMany();
-      res.json(users);
+      const { email, password, name } = req.body;
+      // Hash the password with a salt (e.g., 10 rounds)
+      const hashedPassword = await bcrypt.hash(password, 10);
+  
+      const user = await prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          name,
+        },
+      });
+  
+      res.status(201).json(user);
     } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Something went wrong' });
+      console.error('Error creating user:', error);
+      res.status(500).json({ error: 'Failed to create user' });
     }
   });
 
-app.post('/groups', async (req, res) => {
-  const { name, contribution, frequency } = req.body;
+app.post('/groups', authMiddleware, async (req, res) => {
+    const { name, contribution, frequency } = req.body;
   
     try {
       const newGroup = await prisma.group.create({
@@ -44,7 +59,7 @@ app.post('/groups', async (req, res) => {
     }
   }); 
 
-  app.get('/groups', async (req, res) => {
+  app.post('/groups', authMiddleware, async (req, res) => {
     try {
       const groups = await prisma.group.findMany();
       res.json(groups);
@@ -119,9 +134,53 @@ app.post('/groups', async (req, res) => {
     }
   });
   
-
+  // Create a separate function typed as RequestHandler
+  
+  export const loginHandler: RequestHandler = async (req, res, next) => {
+    try {
+      const { email, password } = req.body;
+  
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        // Send 401 response and then return void
+        res.status(401).json({ error: 'Invalid email or password' });
+        return;
+      }
+  
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        res.status(401).json({ error: 'Invalid email or password' });
+        return;
+      }
+  
+      const token = jwt.sign(
+        { userId: user.id, email: user.email },
+        process.env.JWT_SECRET as string,
+        { expiresIn: '1d' }
+      );
+  
+      // Send the token in JSON
+      res.json({
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+        },
+      });
+      return; // function ends, returning void
+    } catch (error) {
+      // Send a 500 error, then return
+      res.status(500).json({ error: 'Login failed' });
+      return;
+    }
+  };
+  
+  // Then use the handler:
+  app.post('/auth/login', loginHandler);
+  
 // Use PORT from .env if provided, else default to 4000
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
