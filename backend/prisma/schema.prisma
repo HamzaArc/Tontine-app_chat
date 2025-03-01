@@ -20,8 +20,9 @@ model User {
   createdAt DateTime @default(now())
   password  String
 
-  // Back-relation to Membership
+  // Back-relations
   memberships Membership[]
+  payments    Payment[] // 🔹 Add back-relation for Payment model
 }
 
 model Group {
@@ -32,8 +33,9 @@ model Group {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  // Relation
+  // Relations
   memberships Membership[]
+  cycles      Cycle[] // 🔹 Add back-relation for Cycle model
 }
 
 model Membership {
@@ -46,6 +48,32 @@ model Membership {
   user  User  @relation(fields: [userId], references: [id])
   group Group @relation(fields: [groupId], references: [id])
 
-  // Make sure each user can only join a group once
+  // Ensure unique user per group
   @@unique([userId, groupId])
+}
+
+model Cycle {
+  id         Int       @id @default(autoincrement())
+  groupId    Int
+  cycleIndex Int // which cycle (e.g., 1, 2, 3, ... up to group size)
+  startDate  DateTime?
+  endDate    DateTime?
+  createdAt  DateTime  @default(now())
+
+  // Relations
+  group    Group     @relation(fields: [groupId], references: [id])
+  payments Payment[] // Back-relation to Payment model
+}
+
+model Payment {
+  id      Int       @id @default(autoincrement())
+  cycleId Int
+  userId  Int
+  amount  Float
+  paid    Boolean   @default(false)
+  paidAt  DateTime?
+
+  // Relations
+  cycle Cycle @relation(fields: [cycleId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
 }
