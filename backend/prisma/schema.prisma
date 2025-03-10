@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                Int          @id @default(autoincrement())
+  email             String       @unique
+  password          String
+  name              String?
+  phone             String?
+  pushToken         String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  cyclesAsRecipient Cycle[]      @relation("CycleRecipient")
+  memberships       Membership[]
+  payments          Payment[]
+}
+
+model Group {
+  id           Int          @id @default(autoincrement())
+  name         String
+  description  String?
+  contribution Float?
+  frequency    String?
+  maxMembers   Int?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  cycles       Cycle[]
+  memberships  Membership[]
+}
+
+model Membership {
+  id       Int      @id @default(autoincrement())
+  userId   Int
+  groupId  Int
+  role     String   @default("member")
+  joinedAt DateTime @default(now())
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+}
+
+model Cycle {
+  id              Int       @id @default(autoincrement())
+  groupId         Int
+  cycleIndex      Int
+  startDate       DateTime?
+  endDate         DateTime?
+  recipientUserId Int?
+  status          String    @default("active")
+  createdAt       DateTime  @default(now())
+  group           Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  recipient       User?     @relation("CycleRecipient", fields: [recipientUserId], references: [id])
+  payments        Payment[]
+}
+
+model Payment {
+  id      Int       @id @default(autoincrement())
+  cycleId Int
+  userId  Int
+  amount  Float
+  paid    Boolean   @default(false)
+  paidAt  DateTime?
+  cycle   Cycle     @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
