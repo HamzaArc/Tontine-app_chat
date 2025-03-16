@@ -8,17 +8,19 @@ datasource db {
 }
 
 model User {
-  id                Int          @id @default(autoincrement())
-  email             String       @unique
-  password          String
-  name              String?
-  phone             String?
-  pushToken         String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
-  cyclesAsRecipient Cycle[]      @relation("CycleRecipient")
-  memberships       Membership[]
-  payments          Payment[]
+  id                   Int          @id @default(autoincrement())
+  email                String       @unique
+  password             String
+  name                 String?
+  phone                String?
+  pushToken            String?
+  emailRemindersEnabled Boolean     @default(true)
+  pushRemindersEnabled Boolean      @default(true)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  cyclesAsRecipient    Cycle[]      @relation("CycleRecipient")
+  memberships          Membership[]
+  payments             Payment[]
 }
 
 model Group {

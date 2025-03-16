@@ -8,6 +8,11 @@ import { createStackNavigator } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sentry from '@sentry/react-native';
 import { authEvents } from './events';
+import { DeepLinkService } from './services/deepLinkService';
+
+// Global authentication and deep link state variables
+global.isAuthenticated = false;
+global.pendingDeepLink = null;
 
 // Import screens
 import LoginScreen from './screens/LoginScreen';
@@ -80,16 +85,24 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [userToken, setUserToken] = useState(null);
 
-  // Store function reference globally
   globalLogout = () => {
     console.log("GLOBAL LOGOUT CALLED");
     setUserToken(null);
+    global.isAuthenticated = false;
   };
-
-  // Add global login function
+  
   globalLogin = (token) => {
     console.log("GLOBAL LOGIN CALLED");
     setUserToken(token);
+    global.isAuthenticated = true;
+    
+    // Check for pending deep links
+    if (global.pendingDeepLink && global.pendingDeepLink.handler) {
+      setTimeout(() => {
+        global.pendingDeepLink.handler();
+        global.pendingDeepLink = null;
+      }, 1000); // Delay to ensure navigation is ready
+    }
   };
 
   // Auth token reset function
@@ -124,23 +137,36 @@ export default function App() {
             const response = await api.get('/api/health');
             console.log('Token validation successful:', response.data);
             setUserToken(token);
+            global.isAuthenticated = true;
+            
+            // If there's a pending deep link, handle it
+            if (global.pendingDeepLink && global.pendingDeepLink.handler) {
+              global.pendingDeepLink.handler();
+              global.pendingDeepLink = null;
+            }
           } catch (error) {
             console.log('Token validation failed:', error.message);
             // Token is invalid or expired, clear it
             await AsyncStorage.removeItem('authToken');
             setUserToken(null);
+            global.isAuthenticated = false;
           }
         } else {
           // No token found
           console.log('No auth token found');
           setUserToken(null);
+          global.isAuthenticated = false;
         }
       } catch (error) {
         console.error('Auth check failed:', error);
         setUserToken(null);
+        global.isAuthenticated = false;
       } finally {
         // Always set loading to false when done
         setIsLoading(false);
+        
+        // Initialize deep link handling
+        DeepLinkService.init(navigation);
       }
     };
     

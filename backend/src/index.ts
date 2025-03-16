@@ -9,6 +9,8 @@ import './cronJobs';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import * as Sentry from '@sentry/node';
+import { Expo } from 'expo-server-sdk';
+const expo = new Expo();
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN, // Set this in your environment variables
@@ -33,6 +35,7 @@ app.get('/', (req, res) => {
 // =============================================
 // USER RELATED ENDPOINTS
 // =============================================
+
 
 // Create a new user
 app.post('/users', async (req, res) => {
@@ -277,6 +280,67 @@ app.put('/users/:userId/password', authMiddleware, async (req: Request, res: Res
   }
 });
 
+// Update notification settings endpoint
+app.put('/users/:userId/notification-settings', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params.userId, 10);
+    const { emailReminders, pushReminders } = req.body;
+    
+    // Check if the user is updating their own settings
+    const requesterId = (req as any).user.userId;
+    if (userId !== requesterId) {
+      res.status(403).json({ error: 'You can only update your own settings' });
+      return;
+    }
+    
+    // Update user preferences
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        emailRemindersEnabled: emailReminders !== undefined ? emailReminders : undefined,
+        pushRemindersEnabled: pushReminders !== undefined ? pushReminders : undefined
+      }
+    });
+    
+    res.json({ message: 'Notification settings updated successfully' });
+  } catch (error) {
+    console.error('Error updating notification settings:', error);
+    res.status(500).json({ error: 'Failed to update notification settings' });
+  }
+});
+
+// Simplified manual reminder endpoint
+app.post('/payments/:paymentId/send-reminder', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const paymentId = parseInt(req.params.paymentId, 10);
+    
+    // Get the payment
+    const payment = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        cycle: {
+          include: { group: true }
+        },
+        user: true
+      }
+    });
+    
+    if (!payment) {
+      res.status(404).json({ error: 'Payment not found' });
+      return;
+    }
+    
+    // For now, just log the reminder request
+    console.log(`REMINDER REQUEST: Payment ID ${paymentId}, User ID ${payment.userId}`);
+    
+    // Return success without actually sending a notification
+    res.json({ message: 'Payment reminder logged successfully' });
+  } catch (error) {
+    console.error('Error processing reminder request:', error);
+    res.status(500).json({ error: 'Failed to process reminder request' });
+  }
+});
+
 // Delete user account
 app.delete('/users/:userId', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -466,6 +530,68 @@ app.get('/groups', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error fetching groups:', error);
     res.status(500).json({ error: 'Failed to fetch groups' });
+  }
+});
+
+// Join a group via invitation
+app.post('/groups/:groupId/join', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const groupId = parseInt(req.params.groupId, 10);
+    const userId = (req as any).user.userId;
+    
+    // Check if the group exists
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+    });
+    
+    if (!group) {
+      res.status(404).json({ error: 'Group not found' });
+      return;
+    }
+    
+    // Check if the user is already a member
+    const existingMembership = await prisma.membership.findUnique({
+      where: {
+        userId_groupId: {
+          userId,
+          groupId,
+        },
+      },
+    });
+    
+    if (existingMembership) {
+      res.status(400).json({ error: 'You are already a member of this group' });
+      return;
+    }
+    
+    // Check if the group has reached its maximum member limit
+    if (group.maxMembers) {
+      const memberCount = await prisma.membership.count({
+        where: { groupId },
+      });
+      
+      if (memberCount >= group.maxMembers) {
+        res.status(400).json({ error: 'This group has reached its maximum member limit' });
+        return;
+      }
+    }
+    
+    // Add the user to the group
+    const membership = await prisma.membership.create({
+      data: {
+        userId,
+        groupId,
+        role: 'member',
+      },
+    });
+    
+    res.status(201).json({
+      message: 'Successfully joined the group',
+      membership,
+    });
+  } catch (error) {
+    console.error('Error joining group:', error);
+    res.status(500).json({ error: 'Failed to join group' });
   }
 });
 

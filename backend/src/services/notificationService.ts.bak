@@ -1,0 +1,180 @@
+import { Expo, ExpoPushMessage } from 'expo-server-sdk';
+import { EmailService } from './emailService';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+const expo = new Expo();
+
+export const NotificationService = {
+  /**
+   * Send a push notification to a user
+   */
+  sendPushNotification: async (
+    pushToken: string,
+    title: string,
+    body: string,
+    data: Record<string, any> = {}
+  ): Promise<boolean> => {
+    try {
+      // Check if the push token is valid
+      if (!Expo.isExpoPushToken(pushToken)) {
+        console.error(`Invalid Expo push token: ${pushToken}`);
+        return false;
+      }
+      
+      // Create the message
+      const message: ExpoPushMessage = {
+        to: pushToken,
+        sound: 'default',
+        title,
+        body,
+        data
+      };
+      
+      // Send the notification
+      const chunks = expo.chunkPushNotifications([message]);
+      const tickets = [];
+      
+      for (const chunk of chunks) {
+        try {
+          const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+          tickets.push(...ticketChunk);
+        } catch (error) {
+          console.error('Error sending push notification chunk:', error);
+        }
+      }
+      
+      // Check for errors
+      for (const ticket of tickets) {
+        if (ticket.status === 'error') {
+          console.error(`Error sending push notification: ${ticket.message}`);
+          if (ticket.details && ticket.details.error === 'DeviceNotRegistered') {
+            // You might want to remove the invalid token from your database
+            return false;
+          }
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error in sendPushNotification:', error);
+      return false;
+    }
+  },
+  
+  /**
+   * Send payment reminder via push and email
+   */
+  sendPaymentReminder: async (
+    userId: number,
+    groupName: string,
+    amount: number,
+    dueDate: string,
+    cycleId: number,
+    cycleIndex: number
+  ): Promise<void> => {
+    try {
+      // Get user details
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+      
+      if (!user) {
+        console.error(`User not found: ${userId}`);
+        return;
+      }
+      
+      // Format the date
+      const formattedDate = new Date(dueDate).toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
+      });
+      
+      // Prepare notification content
+      const title = 'Payment Reminder';
+      const body = `Your payment of $${amount.toFixed(2)} for ${groupName} (Cycle #${cycleIndex}) is due by ${formattedDate}.`;
+      const data = {
+        type: 'payment_reminder',
+        cycleId,
+        groupName,
+        amount,
+        dueDate,
+        deepLink: `tontine://payment?cycleId=${cycleId}`
+      };
+      
+      // Send push notification if the user has a push token
+      if (user.pushToken) {
+        await NotificationService.sendPushNotification(
+          user.pushToken,
+          title,
+          body,
+          data
+        );
+      }
+      
+      // Send email reminder if the user has an email
+      if (user.email) {
+        await EmailService.sendPaymentReminder(
+          user.email,
+          user.name || 'Tontine Member',
+          groupName,
+          amount,
+          formattedDate,
+          cycleIndex
+        );
+      }
+    } catch (error) {
+      console.error('Error sending payment reminder:', error);
+    }
+  },
+  
+  /**
+   * Schedule reminders for all unpaid payments
+   */
+  scheduleReminders: async (): Promise<void> => {
+    try {
+      const now = new Date();
+      
+      // Find all active cycles
+      const activeCycles = await prisma.cycle.findMany({
+        where: {
+          status: 'active',
+          endDate: {
+            gte: now
+          }
+        },
+        include: {
+          group: true
+        }
+      });
+      
+      for (const cycle of activeCycles) {
+        // Get all unpaid payments for this cycle
+        const unpaidPayments = await prisma.payment.findMany({
+          where: {
+            cycleId: cycle.id,
+            paid: false
+          },
+          include: {
+            user: true
+          }
+        });
+        
+        // Send reminders for each unpaid payment
+        for (const payment of unpaidPayments) {
+          await NotificationService.sendPaymentReminder(
+            payment.userId,
+            cycle.group.name,
+            payment.amount,
+            cycle.endDate?.toISOString() || new Date().toISOString(),
+            cycle.id,
+            cycle.cycleIndex
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error scheduling reminders:', error);
+    }
+  }
+};

@@ -20,6 +20,8 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
 import { Linking } from 'react-native';
+import InviteModal from '../components/InviteModal';
+import { SharingService } from '../services/sharingService';
 
 type RootStackParamList = {
   Groups: undefined;
@@ -111,6 +113,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [invitePhone, setInvitePhone] = useState('');
 
@@ -190,16 +193,43 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
       
       if (!userResponse.data || !userResponse.data.id) {
         // User not found, send WhatsApp invitation
-        sendWhatsAppInvite(invitePhone, group?.id || 0, group?.name || '');
-        setModalVisible(false);
-        setInvitePhone('');
-        Alert.alert(
-          'Invitation Sent', 
-          'A WhatsApp message has been sent to invite the user to join the app and this group.'
-        );
+        const success = await SharingService.inviteViaWhatsApp({
+          groupId: group?.id || 0,
+          groupName: group?.name || '',
+          recipientPhone: invitePhone
+        });
+        
+        if (!success) {
+          // If WhatsApp fails, ask if they want to try SMS
+          Alert.alert(
+            'WhatsApp Not Available',
+            'Would you like to send an SMS invitation instead?',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { 
+                text: 'Send SMS', 
+                onPress: async () => {
+                  await SharingService.inviteViaSMS({
+                    groupId: group?.id || 0,
+                    groupName: group?.name || '',
+                    recipientPhone: invitePhone
+                  });
+                }
+              }
+            ]
+          );
+        } else {
+          setModalVisible(false);
+          setInvitePhone('');
+          Alert.alert(
+            'Invitation Sent', 
+            'A message has been sent to invite the user to join the app and this group.'
+          );
+        }
         return;
       }
       
+      // Rest of the original function remains the same
       const user = userResponse.data;
       
       // Check if user is already a member
@@ -227,38 +257,19 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-
-  const sendWhatsAppInvite = (phoneNumber: string, groupId: number, groupName: string) => {
-    // Format phone number (remove spaces, ensure it starts with '+')
-    let formattedNumber = phoneNumber.replace(/\s+/g, '');
-    if (!formattedNumber.startsWith('+')) {
-      formattedNumber = '+' + formattedNumber;
+  const sendWhatsAppInvite = async (phoneNumber: string, groupId: number, groupName: string) => {
+    const result = await SharingService.inviteViaWhatsApp({
+      groupId,
+      groupName,
+      recipientPhone: phoneNumber
+    });
+    
+    if (!result) {
+      Alert.alert(
+        'WhatsApp Not Available', 
+        'Please make sure WhatsApp is installed or try another sharing method.'
+      );
     }
-    
-    // Create invitation message
-    const message = `You have been invited to join the "${groupName}" tontine group in the Tontine App. Download the app and sign up to participate: https://tontine-app.com/invite?group=${groupId}`;
-    
-    // Open WhatsApp with the message
-    const whatsappUrl = `whatsapp://send?phone=${formattedNumber}&text=${encodeURIComponent(message)}`;
-    
-    Linking.canOpenURL(whatsappUrl)
-      .then(supported => {
-        if (supported) {
-          return Linking.openURL(whatsappUrl);
-        } else {
-          Alert.alert(
-            'WhatsApp Not Available', 
-            'Please make sure WhatsApp is installed on your device.'
-          );
-        }
-      })
-      .catch(err => {
-        console.error('Error opening WhatsApp:', err);
-        Alert.alert(
-          'Error',
-          'There was a problem opening WhatsApp. Please try again.'
-        );
-      });
   };
 
   const handleCreateCycle = () => {
@@ -358,7 +369,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
     <ScrollView 
       style={styles.tabContent}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']}  useNativeDriver={false} />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />
       }
     >
       {/* Group Info Card */}
@@ -550,7 +561,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
         {isAdmin && (
           <TouchableOpacity 
             style={styles.addMemberButton}
-            onPress={() => setModalVisible(true)}
+            onPress={() => setInviteModalVisible(true)} 
           >
             <Ionicons name="person-add" size={16} color="#4CAF50" />
             <Text style={styles.addMemberText}>Add Member</Text>
@@ -595,7 +606,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
           </TouchableOpacity>
         )}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']}  useNativeDriver={false} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />
         }
         ListEmptyComponent={
           <View style={styles.emptyListContainer}>
@@ -678,7 +689,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
             </TouchableOpacity>
           )}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} useNativeDriver={false} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />
           }
           ListEmptyComponent={
             <View style={styles.emptyListContainer}>
@@ -772,7 +783,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
               </View>
             )}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} useNativeDriver={false} />
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />
             }
           />
         </>
@@ -886,6 +897,14 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
       {activeTab === 'members' && renderMembersTab()}
       {activeTab === 'cycles' && renderCyclesTab()}
       {activeTab === 'payments' && renderPaymentsTab()}
+
+      {/* Invite Modal */}
+<InviteModal
+  visible={inviteModalVisible}
+  onClose={() => setInviteModalVisible(false)}
+  groupId={groupId}
+  groupName={groupName}
+/>
       
       {/* Add Member Modal */}
       <Modal

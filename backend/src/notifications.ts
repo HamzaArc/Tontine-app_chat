@@ -1,7 +1,6 @@
-// notifications.ts
+// src/notifications.ts
 export async function sendPushNotification(token: string, title: string, body: string) {
-    // Your logic to send the push notification, e.g.:
-    console.log(`Sending push notification to ${token} with title "${title}" and body "${body}"`);
-    // You could use fetch() to call an external push service API here
-  }
-  
+  // For now, just log the notification request
+  console.log(`NOTIFICATION REQUEST: To: ${token}, Title: ${title}, Body: ${body}`);
+  return true; // Always return success
+}
