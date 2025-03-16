@@ -96,31 +96,104 @@ app.get('/users/:userId', authMiddleware, async (req: Request, res: Response): P
 // Search users by email (for adding members)
 app.get('/users', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email } = req.query;
+    const { email, phone } = req.query;
     
-    if (!email) {
-      res.status(400).json({ error: 'Email query parameter is required' });
+    if (!email && !phone) {
+      res.status(400).json({ error: 'Email or phone query parameter is required' });
       return;
     }
     
-    const user = await prisma.user.findFirst({
-      where: {
-        email: {
-          contains: email.toString().toLowerCase(),
-          mode: 'insensitive',
+    let user;
+    
+    if (email) {
+      user = await prisma.user.findFirst({
+        where: {
+          email: {
+            contains: email.toString().toLowerCase(),
+            mode: 'insensitive',
+          },
         },
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-      },
-    });
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+        },
+      });
+    } else if (phone) {
+      // Normalize the phone number by removing spaces and any non-digit characters
+      const normalizedPhone = phone.toString().replace(/\s+/g, '');
+      
+      user = await prisma.user.findFirst({
+        where: {
+          phone: {
+            contains: normalizedPhone,
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+        },
+      });
+    }
     
     res.json(user || null);
   } catch (error) {
     console.error('Error searching users:', error);
     res.status(500).json({ error: 'Failed to search users' });
+  }
+});
+
+app.post('/invites', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { phone, groupId } = req.body;
+    
+    if (!phone || !groupId) {
+      res.status(400).json({ error: 'Phone number and group ID are required' });
+      return;
+    }
+    
+    // Check if the group exists
+    const group = await prisma.group.findUnique({
+      where: { id: parseInt(groupId.toString(), 10) },
+    });
+    
+    if (!group) {
+      res.status(404).json({ error: 'Group not found' });
+      return;
+    }
+    
+    // Check if the user making the request is a member of the group
+    const userId = (req as any).user.userId;
+    const membership = await prisma.membership.findUnique({
+      where: {
+        userId_groupId: {
+          userId,
+          groupId: parseInt(groupId.toString(), 10),
+        },
+      },
+    });
+    
+    if (!membership) {
+      res.status(403).json({ error: 'You are not a member of this group' });
+      return;
+    }
+    
+    // In a production app, here you would:
+    // 1. Store the invitation in a database
+    // 2. Send a WhatsApp message via a service like Twilio
+    
+    // For this example, we'll just return success
+    res.status(200).json({ 
+      success: true, 
+      message: 'Invitation sent successfully',
+      inviteUrl: `https://tontine-app.com/invite?group=${groupId}`
+    });
+  } catch (error) {
+    console.error('Error sending invitation:', error);
+    res.status(500).json({ error: 'Failed to send invitation' });
   }
 });
 

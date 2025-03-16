@@ -19,6 +19,7 @@ import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
+import { Linking } from 'react-native';
 
 type RootStackParamList = {
   Groups: undefined;
@@ -99,7 +100,6 @@ interface Payment {
 
 const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   const { groupId, groupName } = route.params;
-  
   const [group, setGroup] = useState<GroupDetails | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [cycles, setCycles] = useState<Cycle[]>([]);
@@ -112,6 +112,8 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   const [userId, setUserId] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [invitePhone, setInvitePhone] = useState('');
+
   
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -175,33 +177,25 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const handleAddMember = async () => {
-    if (!inviteEmail.trim()) {
-      Alert.alert('Error', 'Please enter a valid email address');
+    if (!invitePhone.trim() || invitePhone.length < 10) {
+      Alert.alert('Error', 'Please enter a valid phone number');
       return;
     }
     
     try {
-      // First, find the user by email
+      // First, try to find the user by phone number
       const userResponse = await api.get('/users', {
-        params: { email: inviteEmail.trim() }
+        params: { phone: invitePhone.trim() }
       });
       
-      if (!userResponse.data || userResponse.data.length === 0) {
+      if (!userResponse.data || !userResponse.data.id) {
+        // User not found, send WhatsApp invitation
+        sendWhatsAppInvite(invitePhone, group?.id || 0, group?.name || '');
+        setModalVisible(false);
+        setInvitePhone('');
         Alert.alert(
-          'User Not Found', 
-          'We couldn\'t find a user with this email. Would you like to send an invitation?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Send Invitation', 
-              onPress: () => {
-                // In a real app, send an invitation email here
-                Alert.alert('Invitation Sent', 'We\'ve sent an invitation to join the app');
-                setModalVisible(false);
-                setInviteEmail('');
-              }
-            }
-          ]
+          'Invitation Sent', 
+          'A WhatsApp message has been sent to invite the user to join the app and this group.'
         );
         return;
       }
@@ -224,7 +218,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
       
       Alert.alert('Success', 'Member added successfully');
       setModalVisible(false);
-      setInviteEmail('');
+      setInvitePhone('');
       fetchData(); // Refresh data
       
     } catch (error) {
@@ -233,8 +227,58 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
+
+  const sendWhatsAppInvite = (phoneNumber: string, groupId: number, groupName: string) => {
+    // Format phone number (remove spaces, ensure it starts with '+')
+    let formattedNumber = phoneNumber.replace(/\s+/g, '');
+    if (!formattedNumber.startsWith('+')) {
+      formattedNumber = '+' + formattedNumber;
+    }
+    
+    // Create invitation message
+    const message = `You have been invited to join the "${groupName}" tontine group in the Tontine App. Download the app and sign up to participate: https://tontine-app.com/invite?group=${groupId}`;
+    
+    // Open WhatsApp with the message
+    const whatsappUrl = `whatsapp://send?phone=${formattedNumber}&text=${encodeURIComponent(message)}`;
+    
+    Linking.canOpenURL(whatsappUrl)
+      .then(supported => {
+        if (supported) {
+          return Linking.openURL(whatsappUrl);
+        } else {
+          Alert.alert(
+            'WhatsApp Not Available', 
+            'Please make sure WhatsApp is installed on your device.'
+          );
+        }
+      })
+      .catch(err => {
+        console.error('Error opening WhatsApp:', err);
+        Alert.alert(
+          'Error',
+          'There was a problem opening WhatsApp. Please try again.'
+        );
+      });
+  };
+
   const handleCreateCycle = () => {
+    // Check if we've reached the maximum number of cycles
+    if (group?.maxMembers && cycles.length >= group.maxMembers) {
+      Alert.alert(
+        'Maximum Cycles Reached',
+        `This group is configured for ${group.maxMembers} cycles, which matches the number of members. You can't create more cycles.`
+      );
+      return;
+    }
+    
     navigation.navigate('CreateCycle', { groupId, groupName });
+  };
+
+  const isCycleCreationDisabled = (): boolean => {
+    if (!group || !group.maxMembers) {
+      return false;
+    }
+    return cycles.length >= group.maxMembers;
   };
 
   const handleCyclePress = (cycle: Cycle) => {
@@ -314,7 +358,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
     <ScrollView 
       style={styles.tabContent}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']}  useNativeDriver={false} />
       }
     >
       {/* Group Info Card */}
@@ -481,6 +525,26 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   const renderMembersTab = () => (
     <View style={styles.tabContent}>
       <View style={styles.membersHeader}>
+      {group?.maxMembers && (
+  <View style={styles.memberProgressContainer}>
+    <View style={styles.memberProgressTextContainer}>
+      <Text style={styles.memberProgressText}>
+        {members.length} of {group.maxMembers} members
+      </Text>
+      <Text style={styles.memberProgressPercentage}>
+        {Math.round((members.length / group.maxMembers) * 100)}%
+      </Text>
+    </View>
+    <View style={styles.memberProgressBarBackground}>
+      <View 
+        style={[
+          styles.memberProgressBar, 
+          { width: `${(members.length / group.maxMembers) * 100}%` }
+        ]} 
+      />
+    </View>
+  </View>
+ )}
         <Text style={styles.membersTitle}>Group Members ({members.length})</Text>
         
         {isAdmin && (
@@ -531,7 +595,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
           </TouchableOpacity>
         )}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']}  useNativeDriver={false} />
         }
         ListEmptyComponent={
           <View style={styles.emptyListContainer}>
@@ -543,84 +607,100 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
     </View>
   );
 
-  const renderCyclesTab = () => (
-    <View style={styles.tabContent}>
-      <View style={styles.cyclesHeader}>
-        <Text style={styles.cyclesTitle}>Payment Cycles</Text>
-        
-        {isAdmin && (
-          <TouchableOpacity 
-            style={styles.createCycleButton}
-            onPress={handleCreateCycle}
-          >
-            <Ionicons name="add" size={16} color="#4CAF50" />
-            <Text style={styles.createCycleText}>New Cycle</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+ const renderCyclesTab = () => {
+    // Calculate this value before the JSX
+    const cycleCreationDisabled: boolean = 
+      group?.maxMembers !== undefined && 
+      group?.maxMembers !== null && 
+      cycles.length >= group.maxMembers;
       
-      <FlatList
-        data={cycles}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <TouchableOpacity 
-            style={styles.cycleItem}
-            onPress={() => handleCyclePress(item)}
-          >
-            <View style={styles.cycleItemHeader}>
-              <Text style={styles.cycleItemTitle}>Cycle #{item.cycleIndex}</Text>
-              <View style={[
-                styles.statusBadge, 
-                item.status === 'active' ? styles.activeStatus : 
-                item.status === 'completed' ? styles.completedStatus : 
-                styles.pendingStatus
-              ]}>
-                <Text style={styles.statusText}>
-                  {item.status || 'Active'}
-                </Text>
-              </View>
-            </View>
-            
-            <View style={styles.cycleItemDetails}>
-              <View style={styles.cycleItemDetail}>
-                <Ionicons name="calendar-outline" size={16} color="#666" />
-                <Text style={styles.cycleItemDetailText}>
-                  {item.startDate ? new Date(item.startDate).toLocaleDateString() : 'N/A'}
-                </Text>
+    return (
+      <View style={styles.tabContent}>
+        <View style={styles.cyclesHeader}>
+          <Text style={styles.cyclesTitle}>Payment Cycles</Text>
+          
+          {isAdmin && (
+            <TouchableOpacity 
+              style={[
+                styles.createCycleButton, 
+                cycleCreationDisabled ? styles.disabledButton : {}
+              ]}
+              onPress={handleCreateCycle}
+              disabled={cycleCreationDisabled}
+            >
+              <Ionicons name="add" size={16} color="#4CAF50" />
+              <Text style={styles.createCycleText}>
+                {cycleCreationDisabled ? "Max Cycles Created" : "New Cycle"}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        <FlatList
+          data={cycles}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={({ item }) => (
+            <TouchableOpacity 
+              style={styles.cycleItem}
+              onPress={() => handleCyclePress(item)}
+            >
+              <View style={styles.cycleItemHeader}>
+                <Text style={styles.cycleItemTitle}>Cycle #{item.cycleIndex}</Text>
+                <View style={[
+                  styles.statusBadge, 
+                  item.status === 'active' ? styles.activeStatus : 
+                  item.status === 'completed' ? styles.completedStatus : 
+                  styles.pendingStatus
+                ]}>
+                  <Text style={styles.statusText}>
+                    {item.status || 'Active'}
+                  </Text>
+                </View>
               </View>
               
-              <View style={styles.cycleItemDetail}>
-                <Ionicons name="person-outline" size={16} color="#666" />
-                <Text style={styles.cycleItemDetailText}>
-                  {item.recipientUserId ? 'Assigned' : 'Unassigned'}
-                </Text>
+              <View style={styles.cycleItemDetails}>
+                <View style={styles.cycleItemDetail}>
+                  <Ionicons name="calendar-outline" size={16} color="#666" />
+                  <Text style={styles.cycleItemDetailText}>
+                    {item.startDate ? new Date(item.startDate).toLocaleDateString() : 'N/A'}
+                  </Text>
+                </View>
+                
+                <View style={styles.cycleItemDetail}>
+                  <Ionicons name="person-outline" size={16} color="#666" />
+                  <Text style={styles.cycleItemDetailText}>
+                    {item.recipientUserId ? 'Assigned' : 'Unassigned'}
+                  </Text>
+                </View>
               </View>
+              
+              <Ionicons name="chevron-forward" size={20} color="#ccc" style={styles.cycleItemArrow} />
+            </TouchableOpacity>
+          )}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} useNativeDriver={false} />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyListContainer}>
+              <MaterialCommunityIcons name="calendar-blank-outline" size={40} color="#ccc" />
+              <Text style={styles.emptyListText}>No cycles found</Text>
+              {isAdmin && (
+                <TouchableOpacity 
+                  style={styles.emptyListButton}
+                  onPress={handleCreateCycle}
+                  disabled={cycleCreationDisabled}
+                >
+                  <Text style={styles.emptyListButtonText}>
+                    {cycleCreationDisabled ? "Max Cycles Created" : "Create First Cycle"}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
-            
-            <Ionicons name="chevron-forward" size={20} color="#ccc" style={styles.cycleItemArrow} />
-          </TouchableOpacity>
-        )}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyListContainer}>
-            <MaterialCommunityIcons name="calendar-blank-outline" size={40} color="#ccc" />
-            <Text style={styles.emptyListText}>No cycles found</Text>
-            {isAdmin && (
-              <TouchableOpacity 
-                style={styles.emptyListButton}
-                onPress={handleCreateCycle}
-              >
-                <Text style={styles.emptyListButtonText}>Create First Cycle</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        }
-      />
-    </View>
-  );
-
+          }
+        />
+      </View>
+    );
+  };
   const renderPaymentsTab = () => (
     <View style={styles.tabContent}>
       {currentCycle ? (
@@ -692,7 +772,7 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
               </View>
             )}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} />
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4CAF50']} useNativeDriver={false} />
             }
           />
         </>
@@ -824,38 +904,40 @@ const GroupDetailScreen: React.FC<Props> = ({ navigation, route }) => {
             </View>
             
             <View style={styles.modalContent}>
-              <Text style={styles.modalLabel}>
-                Enter the email address of the member you want to add:
-              </Text>
-              
-              <View style={styles.inputContainer}>
-                <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Email address"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  value={inviteEmail}
-                  onChangeText={setInviteEmail}
-                />
-              </View>
-              
-              <Text style={styles.modalHelperText}>
-                The person must already have an account to be added to this group
-              </Text>
-              
-              <TouchableOpacity 
-                style={styles.modalButton}
-                onPress={handleAddMember}
-              >
-                <Text style={styles.modalButtonText}>Add Member</Text>
-              </TouchableOpacity>
-            </View>
+  <Text style={styles.modalLabel}>
+    Enter the phone number of the member you want to add:
+  </Text>
+  
+  <View style={styles.inputContainer}>
+    <Ionicons name="call-outline" size={20} color="#666" style={styles.inputIcon} />
+    <TextInput
+      style={styles.input}
+      placeholder="Phone number with country code"
+      keyboardType="phone-pad"
+      autoCapitalize="none"
+      value={invitePhone}
+      onChangeText={setInvitePhone}
+    />
+  </View>
+  
+  <Text style={styles.modalHelperText}>
+    They will receive a WhatsApp invitation to join this group
+  </Text>
+  
+  <TouchableOpacity 
+    style={styles.modalButton}
+    onPress={handleAddMember}
+  >
+    <Text style={styles.modalButtonText}>Send Invitation</Text>
+  </TouchableOpacity>
+  </View>
           </View>
         </View>
       </Modal>
     </View>
   );
+
+
 };
 
 const styles = StyleSheet.create({
@@ -1389,6 +1471,12 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginLeft: 4,
   },
+
+  disabledButton: {
+    backgroundColor: '#E0E0E0',
+    opacity: 0.7,
+  },
+
   pendingBadge: {
     backgroundColor: '#FFF8E1',
     paddingVertical: 6,
@@ -1458,6 +1546,41 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 12,
   },
+
+  memberProgressContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    backgroundColor: '#fff',
+  },
+  memberProgressTextContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  memberProgressText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  memberProgressPercentage: {
+    fontSize: 14,
+    color: '#4CAF50',
+    fontWeight: '500',
+  },
+  memberProgressBarBackground: {
+    height: 6,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 3,
+  },
+  memberProgressBar: {
+    height: 6,
+    backgroundColor: '#4CAF50',
+    borderRadius: 3,
+  },
+
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',

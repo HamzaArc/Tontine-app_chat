@@ -75,9 +75,24 @@ const CreateCycleScreen: React.FC<Props> = ({ navigation, route }) => {
         });
         setMembers(response.data);
         
+        // Get the group details to check maxMembers
+        const groupResponse = await api.get(`/groups/${groupId}`);
+        const groupDetails = groupResponse.data;
+        
         // Check if there are any existing cycles
         const cyclesResponse = await api.get(`/groups/${groupId}/cycles`);
         const cycles = cyclesResponse.data;
+        
+        // If we have maxMembers set, check if we've reached the limit
+        if (groupDetails.maxMembers && cycles.length >= groupDetails.maxMembers) {
+          Alert.alert(
+            'Maximum Cycles Reached',
+            `This group is configured for ${groupDetails.maxMembers} cycles, which matches the number of members. You have already created ${cycles.length} cycles.`
+          );
+          // Navigate back to group detail
+          navigation.goBack();
+          return;
+        }
         
         // Set the cycle index based on existing cycles
         if (cycles.length > 0) {
@@ -96,7 +111,7 @@ const CreateCycleScreen: React.FC<Props> = ({ navigation, route }) => {
     };
     
     fetchMembers();
-  }, [groupId]);
+  }, [groupId, navigation]);
 
   const handleStartDateChange = (event: any, selectedDate?: Date) => {
     setShowStartDatePicker(Platform.OS === 'ios');
@@ -134,40 +149,58 @@ const CreateCycleScreen: React.FC<Props> = ({ navigation, route }) => {
     return true;
   };
 
-  const handleCreateCycle = async () => {
-    if (!validateForm()) return;
+const handleCreateCycle = async () => {
+  if (!validateForm()) return;
+  
+  setSubmitting(true);
+  
+  try {
+    // Get the group details to check maxMembers
+    const groupResponse = await api.get(`/groups/${groupId}`);
+    const groupDetails = groupResponse.data;
     
-    setSubmitting(true);
+    // Get existing cycles
+    const cyclesResponse = await api.get(`/groups/${groupId}/cycles`);
+    const existingCycles = cyclesResponse.data;
     
-    try {
-      const response = await api.post(`/groups/${groupId}/cycles`, {
-        cycleIndex: parseInt(cycleIndex, 10),
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        recipientUserId: recipientUserId
-      });
-      
+    // If we have maxMembers set, check if we've reached the limit
+    if (groupDetails.maxMembers && existingCycles.length >= groupDetails.maxMembers) {
       setSubmitting(false);
       Alert.alert(
-        'Success',
-        'Cycle created successfully',
-        [
-          { 
-            text: 'View Cycle', 
-            onPress: () => navigation.replace('CycleDetail', {
-              cycleId: response.data.cycle.id,
-              groupId,
-              groupName
-            })
-          }
-        ]
+        'Maximum Cycles Reached',
+        `This group is configured for ${groupDetails.maxMembers} cycles, which matches the number of members. You can't create more cycles.`
       );
-    } catch (error) {
-      console.error('Error creating cycle:', error);
-      setSubmitting(false);
-      Alert.alert('Error', 'Failed to create cycle');
+      return;
     }
-  };
+    
+    const response = await api.post(`/groups/${groupId}/cycles`, {
+      cycleIndex: parseInt(cycleIndex, 10),
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      recipientUserId: recipientUserId
+    });
+    
+    setSubmitting(false);
+    Alert.alert(
+      'Success',
+      'Cycle created successfully',
+      [
+        { 
+          text: 'View Cycle', 
+          onPress: () => navigation.replace('CycleDetail', {
+            cycleId: response.data.cycle.id,
+            groupId,
+            groupName
+          })
+        }
+      ]
+    );
+  } catch (error) {
+    console.error('Error creating cycle:', error);
+    setSubmitting(false);
+    Alert.alert('Error', 'Failed to create cycle');
+  }
+};
 
   const selectRecipient = (member: Member) => {
     setRecipientUserId(member.user.id);

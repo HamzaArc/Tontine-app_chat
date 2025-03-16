@@ -71,9 +71,13 @@ const CreateGroupScreen: React.FC<Props> = ({ navigation }) => {
       newErrors.customFrequency = 'Please specify the custom frequency';
     }
     
-    if (maxMembers && isNaN(parseInt(maxMembers))) {
-      newErrors.maxMembers = 'Max members must be a valid number';
-    }
+    if (!maxMembers) {
+        newErrors.maxMembers = 'Number of members is required';
+      } else if (isNaN(parseInt(maxMembers))) {
+        newErrors.maxMembers = 'Number of members must be a valid number';
+      } else if (parseInt(maxMembers) < 2) {
+        newErrors.maxMembers = 'Number of members must be at least 2';
+      }
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -238,7 +242,7 @@ const CreateGroupScreen: React.FC<Props> = ({ navigation }) => {
           
           {/* Max Members */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Maximum Members (Optional)</Text>
+            <Text style={styles.label}>Number of Members*</Text>
             <View style={[styles.inputContainer, errors.maxMembers ? styles.inputError : null]}>
               <TextInput
                 style={styles.input}
@@ -252,7 +256,7 @@ const CreateGroupScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.errorText}>{errors.maxMembers}</Text>
             ) : (
               <Text style={styles.helperText}>
-                Leave blank for unlimited members
+                This will determine the total number of cycles in the group
               </Text>
             )}
           </View>

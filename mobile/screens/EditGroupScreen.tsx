@@ -115,8 +115,13 @@ const EditGroupScreen: React.FC<Props> = ({ navigation, route }) => {
       newErrors.customFrequency = 'Please specify the custom frequency';
     }
     
-    if (maxMembers && isNaN(parseInt(maxMembers))) {
-      newErrors.maxMembers = 'Max members must be a valid number';
+    // Make maxMembers required
+    if (!maxMembers) {
+    newErrors.maxMembers = 'Number of members is required';
+    } else if (isNaN(parseInt(maxMembers))) {
+    newErrors.maxMembers = 'Number of members must be a valid number';
+    } else if (parseInt(maxMembers) < 2) {
+    newErrors.maxMembers = 'Number of members must be at least 2';
     }
     
     setErrors(newErrors);
@@ -280,7 +285,7 @@ const EditGroupScreen: React.FC<Props> = ({ navigation, route }) => {
             
             {/* Max Members */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Maximum Members (Optional)</Text>
+              <Text style={styles.label}>Number of Members*</Text>
               <View style={[styles.inputContainer, errors.maxMembers ? styles.inputError : null]}>
                 <TextInput
                   style={styles.input}
@@ -294,7 +299,7 @@ const EditGroupScreen: React.FC<Props> = ({ navigation, route }) => {
                 <Text style={styles.errorText}>{errors.maxMembers}</Text>
               ) : (
                 <Text style={styles.helperText}>
-                  Leave blank for unlimited members
+                  This will determine the total number of cycles in the group
                 </Text>
               )}
             </View>
